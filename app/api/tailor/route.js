@@ -45,13 +45,21 @@ export async function POST(req) {
       ]
     });
 
-    const text = completion.choices?.[0]?.message?.content || "";
+    const raw = completion.choices?.[0]?.message?.content || "";
+    const text = normalizeText(raw);
 
+    // Parse the tagged sections (these are what your UI expects)
     const summary = parseTagged(text, "SUMMARY_REPLACEMENT");
     const skills = parseTagged(text, "SKILLS_REPLACEMENT");
     const experienceBullets = parseTagged(text, "EXPERIENCE_BULLETS_REPLACEMENT");
     const keywordAlignment = parseTagged(text, "KEYWORD_ALIGNMENT");
-    const tailoredResume = parseTagged(text, "TAILORED_RESUME");
+
+    // Full resume: prefer the tagged section, but fall back to the whole response
+    // so you ALWAYS get something you can paste back into the resume box.
+    const tailoredResume =
+      parseTagged(text, "TAILORED_RESUME") ||
+      parseTagged(text, "FULL_TAILORED_RESUME") ||
+      text;
 
     return Response.json({
       summary,
@@ -64,3 +72,4 @@ export async function POST(req) {
     return Response.json({ error: e?.message || "Tailor error" }, { status: 500 });
   }
 }
+
