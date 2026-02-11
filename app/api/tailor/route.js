@@ -13,7 +13,7 @@ function requireEnv(name) {
 function parseTagged(text, tag) {
   const start = text.indexOf(`[${tag}]`);
   if (start === -1) return "";
-  const rest = text.slice(start + tag.length + 2); // after "[TAG]"
+  const rest = text.slice(start + tag.length + 2);
   const next = rest.search(/\n\[[A-Z_]+\]\n/);
   return normalizeText((next === -1 ? rest : rest.slice(0, next)).trim());
 }
@@ -48,18 +48,22 @@ export async function POST(req) {
     const raw = completion.choices?.[0]?.message?.content || "";
     const text = normalizeText(raw);
 
-    // Parse the tagged sections (these are what your UI expects)
     const summary = parseTagged(text, "SUMMARY_REPLACEMENT");
     const skills = parseTagged(text, "SKILLS_REPLACEMENT");
     const experienceBullets = parseTagged(text, "EXPERIENCE_BULLETS_REPLACEMENT");
     const keywordAlignment = parseTagged(text, "KEYWORD_ALIGNMENT");
 
-    // Full resume: prefer the tagged section, but fall back to the whole response
-    // so you ALWAYS get something you can paste back into the resume box.
     const tailoredResume =
       parseTagged(text, "TAILORED_RESUME") ||
-      parseTagged(text, "FULL_TAILORED_RESUME") ||
-      text;
+      parseTagged(text, "FULL_TAILORED_RESUME");
+
+    // ✅ NEW GUARD — force model to return a full rewritten resume
+    if (!tailoredResume) {
+      return Response.json(
+        { error: "Model did not return a [TAILORED_RESUME] section. Try again." },
+        { status: 500 }
+      );
+    }
 
     return Response.json({
       summary,
@@ -69,7 +73,10 @@ export async function POST(req) {
       tailoredResume
     });
   } catch (e) {
-    return Response.json({ error: e?.message || "Tailor error" }, { status: 500 });
+    return Response.json(
+      { error: e?.message || "Tailor error" },
+      { status: 500 }
+    );
   }
 }
 
