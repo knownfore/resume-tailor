@@ -1,14 +1,16 @@
-resume-tailor/
-  app/
-    api/
-      tailor/
-        route.js
-    page.js
-    layout.js
-  lib/
-    prompts.js
-    text.js
-  .gitignore
-  package.json
-  jsconfig.json
-  README.md
+{
+  "name": "resume-tailor",
+  "private": true,
+  "version": "1.0.0",
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start"
+  },
+  "dependencies": {
+    "next": "14.2.5",
+    "react": "18.3.1",
+    "react-dom": "18.3.1",
+    "openai": "^4.56.0"
+  }
+}
