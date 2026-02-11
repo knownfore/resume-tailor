@@ -1,0 +1,14 @@
+resume-tailor/
+  app/
+    api/
+      tailor/
+        route.js
+    page.js
+    layout.js
+  lib/
+    prompts.js
+    text.js
+  .gitignore
+  package.json
+  jsconfig.json
+  README.md
