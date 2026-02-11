@@ -15,7 +15,6 @@ export default function Page() {
     const file = e.target.files?.[0];
     if (!file) return;
 
-    // For v1: accept .txt only (fast, no OCR/PDF parsing headaches)
     const name = file.name.toLowerCase();
     if (!name.endsWith(".txt")) {
       setError("For now, upload a .txt resume. (PDF/DOCX support can be added next.)");
@@ -42,8 +41,13 @@ export default function Page() {
       if (!r.ok) throw new Error(data?.error || `Request failed (${r.status})`);
 
       setResult(data);
+
+      // ✅ Auto-update the resume textarea with the tailored resume (if returned)
+      if (data?.tailoredResume && typeof data.tailoredResume === "string") {
+        setResumeText(data.tailoredResume);
+      }
     } catch (e) {
-      setError(e.message || "Something went wrong");
+      setError(e?.message || "Something went wrong");
     } finally {
       setLoading(false);
     }
@@ -53,7 +57,8 @@ export default function Page() {
     <main style={{ maxWidth: 1100, margin: "0 auto", padding: 24 }}>
       <h1 style={{ fontSize: 34, margin: "0 0 8px" }}>ATS Resume Tailor</h1>
       <p style={{ marginTop: 0, color: "#444" }}>
-        Upload your resume (TXT for now) + paste a job posting. Get ATS-friendly replacement sections.
+        Upload your resume (TXT for now) + paste a job posting. Get ATS-friendly replacement sections, plus an updated
+        resume.
       </p>
 
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 18, marginTop: 18 }}>
@@ -79,22 +84,41 @@ export default function Page() {
         </div>
       </div>
 
-      <button
-        type="button"
-        onClick={tailor}
-        disabled={loading}
-        style={{
-          marginTop: 18,
-          padding: "10px 16px",
-          background: "#111",
-          color: "#fff",
-          border: "none",
-          borderRadius: 8,
-          cursor: "pointer"
-        }}
-      >
-        {loading ? "Generating..." : "Tailor Resume"}
-      </button>
+      <div style={{ display: "flex", gap: 12, alignItems: "center", marginTop: 18 }}>
+        <button
+          type="button"
+          onClick={tailor}
+          disabled={loading}
+          style={{
+            padding: "10px 16px",
+            background: "#111",
+            color: "#fff",
+            border: "none",
+            borderRadius: 8,
+            cursor: "pointer"
+          }}
+        >
+          {loading ? "Generating..." : "Tailor Resume"}
+        </button>
+
+        {/* Optional: manual replace button (in case you want user control) */}
+        <button
+          type="button"
+          disabled={loading || !result?.tailoredResume}
+          onClick={() => setResumeText(result.tailoredResume)}
+          style={{
+            padding: "10px 16px",
+            background: result?.tailoredResume ? "#0b5" : "#999",
+            color: "#fff",
+            border: "none",
+            borderRadius: 8,
+            cursor: result?.tailoredResume ? "pointer" : "not-allowed"
+          }}
+          title={result?.tailoredResume ? "Replace resume text with the tailored version" : "Run Tailor Resume first"}
+        >
+          Replace Resume With Tailored Version
+        </button>
+      </div>
 
       {error && <p style={{ color: "crimson", marginTop: 12 }}>{error}</p>}
 
@@ -105,9 +129,7 @@ export default function Page() {
           <Section title="Experience Bullets Replacement" content={result.experienceBullets || ""} />
           <Section title="Keyword Alignment" content={result.keywordAlignment || ""} />
 
-          {result.tailoredResume && (
-            <Section title="Full Tailored Resume (Optional)" content={result.tailoredResume} />
-          )}
+          {result.tailoredResume && <Section title="Full Tailored Resume" content={result.tailoredResume} />}
         </div>
       )}
     </main>
