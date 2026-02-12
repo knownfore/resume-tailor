@@ -40,12 +40,15 @@ export default function Page() {
       const data = await r.json().catch(() => ({}));
       if (!r.ok) throw new Error(data?.error || `Request failed (${r.status})`);
 
-      setResult(data);
-
-      // ✅ Auto-update the resume textarea with the tailored resume (if returned)
-      if (data?.tailoredResume && typeof data.tailoredResume === "string") {
-        setResumeText(data.tailoredResume);
+      if (!data?.tailoredResume || typeof data.tailoredResume !== "string") {
+        throw new Error("No tailored resume returned.");
       }
+
+      // store only what Option A returns
+      setResult({ tailoredResume: data.tailoredResume });
+
+      // auto-replace resume text
+      setResumeText(data.tailoredResume);
     } catch (e) {
       setError(e?.message || "Something went wrong");
     } finally {
@@ -57,8 +60,7 @@ export default function Page() {
     <main style={{ maxWidth: 1100, margin: "0 auto", padding: 24 }}>
       <h1 style={{ fontSize: 34, margin: "0 0 8px" }}>ATS Resume Tailor</h1>
       <p style={{ marginTop: 0, color: "#444" }}>
-        Upload your resume (TXT for now) + paste a job posting. Get ATS-friendly replacement sections, plus an updated
-        resume.
+        Upload your resume (TXT for now) + paste a job posting. Get a fully rewritten ATS-friendly resume.
       </p>
 
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 18, marginTop: 18 }}>
@@ -101,7 +103,6 @@ export default function Page() {
           {loading ? "Generating..." : "Tailor Resume"}
         </button>
 
-        {/* Optional: manual replace button (in case you want user control) */}
         <button
           type="button"
           disabled={loading || !result?.tailoredResume}
@@ -122,14 +123,9 @@ export default function Page() {
 
       {error && <p style={{ color: "crimson", marginTop: 12 }}>{error}</p>}
 
-      {result && (
+      {result?.tailoredResume && (
         <div style={{ marginTop: 26 }}>
-          <Section title="Summary Replacement" content={result.summary || ""} />
-          <Section title="Skills Replacement" content={result.skills || ""} />
-          <Section title="Experience Bullets Replacement" content={result.experienceBullets || ""} />
-          <Section title="Keyword Alignment" content={result.keywordAlignment || ""} />
-
-          {result.tailoredResume && <Section title="Full Tailored Resume" content={result.tailoredResume} />}
+          <Section title="Full Tailored Resume" content={result.tailoredResume} />
         </div>
       )}
     </main>
