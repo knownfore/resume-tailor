@@ -7,6 +7,7 @@ export default function Page() {
   const [jobText, setJobText] = useState("");
   const [result, setResult] = useState(null);
   const [loading, setLoading] = useState(false);
+  const [downloading, setDownloading] = useState(false);
   const [error, setError] = useState("");
 
   async function onResumeFile(e) {
@@ -78,6 +79,46 @@ export default function Page() {
     }
   }
 
+  async function downloadDocx() {
+    setError("");
+
+    if (!result?.tailoredResume) {
+      setError("Generate a tailored resume first.");
+      return;
+    }
+
+    setDownloading(true);
+
+    try {
+      const r = await fetch("/api/download-docx", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ tailoredResume: result.tailoredResume })
+      });
+
+      if (!r.ok) {
+        const data = await r.json().catch(() => ({}));
+        throw new Error(data?.error || `Download failed (${r.status})`);
+      }
+
+      const blob = await r.blob();
+      const url = URL.createObjectURL(blob);
+
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = "Tailored_Resume.docx";
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+
+      URL.revokeObjectURL(url);
+    } catch (e) {
+      setError(e?.message || "Download failed");
+    } finally {
+      setDownloading(false);
+    }
+  }
+
   return (
     <main style={{ maxWidth: 1100, margin: "0 auto", padding: 24 }}>
       <h1 style={{ fontSize: 34, margin: "0 0 8px" }}>ATS Resume Tailor</h1>
@@ -125,6 +166,25 @@ export default function Page() {
         >
           {loading ? "Generating..." : "Tailor Resume"}
         </button>
+
+        <button
+          type="button"
+          onClick={downloadDocx}
+          disabled={!result?.tailoredResume || downloading || loading}
+          style={{
+            marginLeft: 12,
+            padding: "10px 16px",
+            background: !result?.tailoredResume ? "#999" : "#0b5",
+            color: "#fff",
+            border: "none",
+            borderRadius: 8,
+            cursor: !result?.tailoredResume ? "not-allowed" : "pointer",
+            opacity: downloading || loading ? 0.7 : 1
+          }}
+          title={result?.tailoredResume ? "Download tailored resume as a DOCX" : "Run Tailor Resume first"}
+        >
+          {downloading ? "Preparing DOCX..." : "Download DOCX"}
+        </button>
       </div>
 
       {error && <p style={{ color: "crimson", marginTop: 12 }}>{error}</p>}
@@ -148,3 +208,4 @@ function Section({ title, content }) {
     </div>
   );
 }
+
