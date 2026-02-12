@@ -44,7 +44,6 @@ export default function Page() {
         throw new Error("No tailored resume returned.");
       }
 
-      // store only what Option A returns
       setResult({ tailoredResume: data.tailoredResume });
 
       // auto-replace resume text
@@ -86,7 +85,7 @@ export default function Page() {
         </div>
       </div>
 
-      <div style={{ display: "flex", gap: 12, alignItems: "center", marginTop: 18 }}>
+      <div style={{ marginTop: 18 }}>
         <button
           type="button"
           onClick={tailor}
@@ -101,23 +100,6 @@ export default function Page() {
           }}
         >
           {loading ? "Generating..." : "Tailor Resume"}
-        </button>
-
-        <button
-          type="button"
-          disabled={loading || !result?.tailoredResume}
-          onClick={() => setResumeText(result.tailoredResume)}
-          style={{
-            padding: "10px 16px",
-            background: result?.tailoredResume ? "#0b5" : "#999",
-            color: "#fff",
-            border: "none",
-            borderRadius: 8,
-            cursor: result?.tailoredResume ? "pointer" : "not-allowed"
-          }}
-          title={result?.tailoredResume ? "Replace resume text with the tailored version" : "Run Tailor Resume first"}
-        >
-          Replace Resume With Tailored Version
         </button>
       </div>
 
