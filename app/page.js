@@ -1,211 +1,276 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
+
+function prettyDate(iso) {
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return iso;
+  return date.toLocaleString();
+}
 
 export default function Page() {
-  const [resumeText, setResumeText] = useState("");
+  const [resumeFile, setResumeFile] = useState(null);
   const [jobText, setJobText] = useState("");
-  const [result, setResult] = useState(null);
-  const [loading, setLoading] = useState(false);
-  const [downloading, setDownloading] = useState(false);
-  const [error, setError] = useState("");
+  const [loadingTailor, setLoadingTailor] = useState(false);
+  const [tailorProgress, setTailorProgress] = useState(0);
+  const [tailorError, setTailorError] = useState("");
+  const [tailoredResume, setTailoredResume] = useState("");
+  const [latestTailoringId, setLatestTailoringId] = useState("");
+  const [history, setHistory] = useState([]);
+  const [loadingHistory, setLoadingHistory] = useState(true);
+  const progressTimerRef = useRef(null);
+  const fileInputRef = useRef(null);
 
-  async function onResumeFile(e) {
-    setError("");
-    setResult(null);
-
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    const name = file.name.toLowerCase();
-    const ok = name.endsWith(".txt") || name.endsWith(".docx");
-
-    if (!ok) {
-      setError("Upload a .txt or .docx resume.");
-      return;
-    }
-
+  async function loadHistory() {
+    setLoadingHistory(true);
     try {
-      const form = new FormData();
-      form.append("file", file);
-
-      const r = await fetch("/api/resume-from-file", {
-        method: "POST",
-        body: form
-      });
-
-      const data = await r.json().catch(() => ({}));
-      if (!r.ok) throw new Error(data?.error || `File parse failed (${r.status})`);
-
-      if (!data?.resumeText || typeof data.resumeText !== "string") {
-        throw new Error("No resume text returned from file parser.");
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 12_000);
+      const res = await fetch("/api/tailor/history", { cache: "no-store", signal: controller.signal });
+      clearTimeout(timeoutId);
+      if (!res.ok) {
+        setHistory([]);
+        return;
       }
-
-      setResumeText(data.resumeText);
-    } catch (err) {
-      setError(err?.message || "Could not parse resume file.");
+      const data = await res.json().catch(() => ({ history: [] }));
+      setHistory(Array.isArray(data.history) ? data.history : []);
+    } catch {
+      setHistory([]);
     } finally {
-      e.target.value = "";
+      setLoadingHistory(false);
     }
   }
 
-  async function tailor() {
-    setError("");
-    setLoading(true);
-    setResult(null);
+  useEffect(() => {
+    loadHistory();
+  }, []);
 
+  async function downloadTailoredResume(tailoringId, format) {
     try {
-      const r = await fetch("/api/tailor", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ resumeText, jobText })
-      });
-
-      const data = await r.json().catch(() => ({}));
-      if (!r.ok) throw new Error(data?.error || `Request failed (${r.status})`);
-
-      if (!data?.tailoredResume || typeof data.tailoredResume !== "string") {
-        throw new Error("No tailored resume returned.");
+      const res = await fetch(`/api/tailor/download?id=${encodeURIComponent(tailoringId)}&format=${format}`);
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data?.error || `Download failed (${res.status})`);
       }
 
-      setResult({ tailoredResume: data.tailoredResume });
-
-      // Automatically replace resume text with tailored version
-      setResumeText(data.tailoredResume);
-    } catch (e) {
-      setError(e?.message || "Something went wrong");
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  async function downloadDocx() {
-    setError("");
-
-    if (!result?.tailoredResume) {
-      setError("Generate a tailored resume first.");
-      return;
-    }
-
-    setDownloading(true);
-
-    try {
-      const r = await fetch("/api/download-docx", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ tailoredResume: result.tailoredResume })
-      });
-
-      if (!r.ok) {
-        const data = await r.json().catch(() => ({}));
-        throw new Error(data?.error || `Download failed (${r.status})`);
-      }
-
-      const blob = await r.blob();
+      const disposition = res.headers.get("content-disposition") || "";
+      const fileNameMatch = disposition.match(/filename=\"?([^\"]+)\"?/i);
+      const fileName = fileNameMatch?.[1] || `tailored-resume.${format}`;
+      const blob = await res.blob();
       const url = URL.createObjectURL(blob);
-
       const a = document.createElement("a");
       a.href = url;
-      a.download = "Tailored_Resume.docx";
+      a.download = fileName;
       document.body.appendChild(a);
       a.click();
       a.remove();
-
       URL.revokeObjectURL(url);
-    } catch (e) {
-      setError(e?.message || "Download failed");
-    } finally {
-      setDownloading(false);
+    } catch (error) {
+      setTailorError(error?.message || "Download failed.");
     }
   }
 
+  async function onTailor(e) {
+    e.preventDefault();
+    setTailorError("");
+    setTailoredResume("");
+    setLoadingTailor(true);
+    setTailorProgress(1);
+    let completed = false;
+
+    try {
+      if (!resumeFile) throw new Error("Please upload a resume file.");
+      const form = new FormData();
+      form.append("resumeFile", resumeFile);
+      form.append("jobText", jobText);
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort("Tailor request timed out."), 90_000);
+
+      let res;
+      try {
+        res = await fetch("/api/tailor", {
+          method: "POST",
+          body: form,
+          signal: controller.signal
+        });
+      } finally {
+        clearTimeout(timeoutId);
+      }
+
+      const raw = await res.text();
+      let data = {};
+      try {
+        data = raw ? JSON.parse(raw) : {};
+      } catch {
+        data = {};
+      }
+      if (!res.ok) {
+        if (res.status === 408) throw new Error("Tailoring timed out. Please retry.");
+        throw new Error(data?.error || `Request failed (${res.status})`);
+      }
+
+      setTailorProgress(100);
+      completed = true;
+      setTailoredResume(data?.tailoredResume || "");
+      setLatestTailoringId(data?.tailoringId || "");
+      await loadHistory();
+    } catch (error) {
+      if (error?.name === "AbortError") {
+        setTailorError("Tailoring timed out. Please retry.");
+      } else {
+        setTailorError(error?.message || "Tailoring request failed.");
+      }
+    } finally {
+      const delayMs = completed ? 1000 : 350;
+      setTimeout(() => {
+        setLoadingTailor(false);
+        setTailorProgress(0);
+      }, delayMs);
+    }
+  }
+
+  useEffect(() => {
+    if (!loadingTailor) {
+      if (progressTimerRef.current) {
+        clearInterval(progressTimerRef.current);
+        progressTimerRef.current = null;
+      }
+      return;
+    }
+
+    if (progressTimerRef.current) clearInterval(progressTimerRef.current);
+    progressTimerRef.current = setInterval(() => {
+      setTailorProgress((current) => {
+        if (current >= 99) return current;
+        const step = current < 35 ? 6 : current < 70 ? 3 : 1;
+        return Math.min(current + step, 99);
+      });
+    }, 300);
+
+    return () => {
+      if (progressTimerRef.current) {
+        clearInterval(progressTimerRef.current);
+        progressTimerRef.current = null;
+      }
+    };
+  }, [loadingTailor]);
+
   return (
-    <main style={{ maxWidth: 1100, margin: "0 auto", padding: 24 }}>
-      <h1 style={{ fontSize: 34, margin: "0 0 8px" }}>ATS Resume Tailor</h1>
-      <p style={{ marginTop: 0, color: "#444" }}>
-        Upload your resume (TXT or DOCX) + paste a job posting. Get a fully rewritten ATS-friendly resume.
-      </p>
-
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 18, marginTop: 18 }}>
+    <main className="shell">
+      <section className="panel hero">
         <div>
-          <h3 style={{ marginBottom: 8 }}>Resume (.txt or .docx)</h3>
-          <input type="file" accept=".txt,.docx" onChange={onResumeFile} />
-          <textarea
-            value={resumeText}
-            onChange={(e) => setResumeText(e.target.value)}
-            placeholder="Or paste your resume text here"
-            style={{ width: "100%", height: 260, marginTop: 10 }}
-          />
+          <h1 className="title">MatchCV</h1>
+          <p className="subtle">Turn any resume into a job-specific, ATS optimized version you can download as polished PDF or Word.</p>
         </div>
+      </section>
 
-        <div>
-          <h3 style={{ marginBottom: 8 }}>Job Posting</h3>
-          <textarea
-            value={jobText}
-            onChange={(e) => setJobText(e.target.value)}
-            placeholder="Paste the job description here"
-            style={{ width: "100%", height: 320 }}
-          />
-        </div>
-      </div>
+      <section className="panel section" style={{ marginTop: 14, animation: "slide-in 420ms ease" }}>
+        <form onSubmit={onTailor}>
+          <div className="form-grid">
+            <div>
+              <div className="label">Resume Upload</div>
+              <input
+                ref={fileInputRef}
+                className="hidden-file-input"
+                type="file"
+                accept=".txt,.pdf,.docx"
+                onChange={(e) => setResumeFile(e.target.files?.[0] || null)}
+                required
+              />
+              <div className="upload-box">
+                <button className="ghost-btn" type="button" onClick={() => fileInputRef.current?.click()} style={{ minWidth: 170 }}>
+                  Choose Resume File
+                </button>
+                <span className="file-name mono">{resumeFile?.name || "No file selected yet"}</span>
+              </div>
+              <p className="subtle" style={{ fontSize: 12, marginTop: 8 }}>
+                Supported: `.txt`, `.pdf`, `.docx` up to 3MB
+              </p>
+            </div>
 
-      <div style={{ marginTop: 18 }}>
-        <button
-          type="button"
-          onClick={tailor}
-          disabled={loading}
-          style={{
-            padding: "10px 16px",
-            background: "#111",
-            color: "#fff",
-            border: "none",
-            borderRadius: 8,
-            cursor: "pointer",
-            opacity: loading ? 0.7 : 1
-          }}
-        >
-          {loading ? "Generating..." : "Tailor Resume"}
-        </button>
+            <div>
+              <div className="label">Job Posting</div>
+              <textarea
+                className="textarea mono"
+                value={jobText}
+                onChange={(e) => setJobText(e.target.value)}
+                placeholder="Paste the full job description."
+                required
+              />
+            </div>
+          </div>
 
-        <button
-          type="button"
-          onClick={downloadDocx}
-          disabled={!result?.tailoredResume || downloading || loading}
-          style={{
-            marginLeft: 12,
-            padding: "10px 16px",
-            background: !result?.tailoredResume ? "#999" : "#0b5",
-            color: "#fff",
-            border: "none",
-            borderRadius: 8,
-            cursor: !result?.tailoredResume ? "not-allowed" : "pointer",
-            opacity: downloading || loading ? 0.7 : 1
-          }}
-          title={result?.tailoredResume ? "Download tailored resume as a DOCX" : "Run Tailor Resume first"}
-        >
-          {downloading ? "Preparing DOCX..." : "Download DOCX"}
-        </button>
-      </div>
+          <div className="toolbar" style={{ marginTop: 12 }}>
+            <button className="button" type="submit" disabled={loadingTailor}>
+              {loadingTailor ? "Tailoring..." : "Tailor Resume"}
+            </button>
+          </div>
+        </form>
 
-      {error && <p style={{ color: "crimson", marginTop: 12 }}>{error}</p>}
+        {loadingTailor && (
+          <section className="progress-wrap">
+            <div className="progress-top">
+              <span className="mono">Optimizing resume for ATS</span>
+              <strong>{tailorProgress}%</strong>
+            </div>
+            <div className="progress-track">
+              <div className="progress-fill" style={{ width: `${tailorProgress}%` }} />
+            </div>
+          </section>
+        )}
 
-      {result?.tailoredResume && (
-        <div style={{ marginTop: 26 }}>
-          <Section title="Full Tailored Resume" content={result.tailoredResume} />
-        </div>
+        {tailorError && <p className="error">{tailorError}</p>}
+      </section>
+
+      {tailoredResume && (
+        <section className="panel section" style={{ marginTop: 14 }}>
+          <div className="section-head">
+            <h2>Tailored Resume</h2>
+            {latestTailoringId && (
+              <div className="tools-bar">
+                <button className="ghost-btn" type="button" onClick={() => downloadTailoredResume(latestTailoringId, "pdf")}>
+                  Download PDF
+                </button>
+                <button className="ghost-btn" type="button" onClick={() => downloadTailoredResume(latestTailoringId, "docx")}>
+                  Download Word
+                </button>
+              </div>
+            )}
+          </div>
+          <div className="result-box">{tailoredResume}</div>
+        </section>
       )}
+
+      <section className="panel section" style={{ marginTop: 14 }}>
+        <div className="section-head">
+          <h2>Recent History</h2>
+          {!loadingHistory && history.length > 0 && (
+            <span className="pill mono">{history.length} entries</span>
+          )}
+        </div>
+        {loadingHistory && <p className="subtle">Loading history...</p>}
+        {!loadingHistory && history.length === 0 && <p className="subtle">No tailoring history yet.</p>}
+        <div className="history-list">
+          {history.map((item) => (
+            <article key={item.id} className="history-item">
+              <div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+                <div className="history-meta">
+                  {item.resumeFileName} ({item.resumeFormat}) at {prettyDate(item.createdAt)}
+                </div>
+                <div className="tools-bar">
+                  <button className="ghost-btn" type="button" onClick={() => downloadTailoredResume(item.id, "pdf")}>
+                    PDF
+                  </button>
+                  <button className="ghost-btn" type="button" onClick={() => downloadTailoredResume(item.id, "docx")}>
+                    Word
+                  </button>
+                </div>
+              </div>
+              <div className="history-preview">{item.resumeTailored}</div>
+            </article>
+          ))}
+        </div>
+      </section>
     </main>
   );
 }
-
-function Section({ title, content }) {
-  return (
-    <div style={{ marginTop: 18 }}>
-      <h3 style={{ margin: "0 0 8px" }}>{title}</h3>
-      <div style={{ whiteSpace: "pre-wrap", border: "1px solid #ddd", padding: 12, borderRadius: 10 }}>
-        {content || "(No content returned)"}
-      </div>
-    </div>
-  );
-}
-
